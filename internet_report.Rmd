@@ -4,10 +4,9 @@ author: "Nate Kratzer"
 date: '2020-09-09'
 output:
   html_document:
-    includes:
-      in_header: header.html
     toc: yes
     toc_float: yes
+    css: style.css
   pdf_document:
     toc: yes
   word_document:
@@ -15,7 +14,8 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      dev = "png", dev.args = list(type = "cairo-png"))
 ```
 
 ```{r, eval = FALSE}
@@ -99,6 +99,12 @@ library(ggthemes)
 library(ggplot2)
 library(rgdal)
 library(sf)
+
+library(showtext)
+
+showtext_auto()
+font_add("Museo Sans 300", "../../MuseoSans_300.otf")
+font_add("Museo Sans 300 Italic", "../../MuseoSans_300_Italic.otf")
 
 df <- read_csv(
   "glp_int_MSAs.csv",
@@ -348,6 +354,155 @@ ranking <- function(df, var, plot_title = "",
   p
 }
 
+ranking <- function(df, var, plot_title = "",
+                    year = NULL, sex = "total", race = "total", peers = "Current",
+                    order = "Descending",
+                    y_title = "Percent", caption_text = "", subtitle_text = "",
+                    bar_label = TRUE, sigfig = 3, accuracy = 0.1,
+                    label_function, alternate_text = NULL,
+                    ranking_colors = TRUE, text_size){
+
+  # Copy variable var to a new column for use with the '$' operator
+  var <- dplyr:::tbl_at_vars(df, vars(!!enquo(var)))
+  df$var <- df[[var]]
+
+  # Filter to sex, race, and year
+  if ("sex" %in% names(df)) df <- df[df$sex == sex,]
+  if ("race" %in% names(df)) df <- df[df$race == race,]
+  if("year" %in% names(df)) {
+    if (is.null(year)) year <- max(years_in_df(df, var))
+    df <- df[df$year %in% year,]
+
+    if (length(year) > 1) {
+      df %<>%
+        group_by_at(df %cols_in% c("MSA", "FIPS")) %>%
+        summarise(var = mean(var, na.rm = TRUE)) %>%
+        ungroup()
+    }
+  }
+
+  # Add peer data if not already present
+  if (df_type(df) %in% c("FIPS", "MSA") & "current" %not_in% names(df)) df %<>% pull_peers(add_info = T)
+
+  # Filter to peer parameter
+  if (peers %in% c("current", "Current"))   df %<>% filter(current == 1)
+  if (peers %in% c("baseline", "Baseline")) df %<>% filter(baseline == 1)
+
+  # Sort according to order parameter
+  if (order %in% c("descending", "Descending")) df %<>% arrange(desc(var))
+  if (order %in% c("ascending", "Ascending"))   df %<>% arrange(var)
+
+  df %<>% filter(!is.na(var))
+
+  # Create numbered city labels for left side of graph
+  df %<>%
+    mutate(
+      rank = row_number(),
+      names = paste0(rank, ". ", city))
+
+  # Set bar colors
+  if (ranking_colors) {
+
+    color_values <- c("#96ca4f", "#ffd600", "#db2834")
+    color_names <- c("green", "yellow", "red")
+    if (order %in% c("descending", "Descending")) {color_names  = rev(color_names)}
+
+    breaks <- classInt::classIntervals(na.omit(df$var), 3, style = "jenks")
+    df$color <- NA
+    df$color[df$var <= breaks$brks[2]] <- color_names[1]
+    df$color[df$var > breaks$brks[2] & df$var <= breaks$brks[3]] <- color_names[2]
+    df$color[df$var > breaks$brks[3]] <- color_names[3]
+
+  } else {
+    df$color <- "blue"
+    color_values <- "#f58021"
+    color_names <- "blue"
+  }
+
+  if (order %in% c("descending", "Descending")) color_values = rev(color_values)
+
+  # Create numeric labels
+  if (!missing(label_function)) {
+    label_text <- df$var %>% signif(sigfig) %>% label_function()
+  } else if (y_title == "Dollars") {
+    if (mean(df$var, na.rm = TRUE) > 10000) {
+      label_text <- df$var %>% signif(sigfig) %>% scales::dollar(accuracy = accuracy, scale = .001, suffix = "k")
+    } else if (mean(df$var, na.rm = TRUE) > 100){
+      label_text <- df$var %>% signif(sigfig) %>% scales::dollar(accuracy = 1)
+    } else {
+      label_text <- df$var %>% signif(sigfig) %>% scales::dollar(accuracy = .01)
+    }
+  } else if (stringr::str_detect(y_title, "Percent")) {
+    label_text <- df$var %>% signif(sigfig) %>% scales::percent(accuracy = accuracy, scale = 1, suffix = "%")
+  } else {
+    label_text <- df$var %>% signif(sigfig) %>% scales::comma(accuracy = accuracy)
+  }
+
+  # Set text format, highlight and italicise Louisville text, highlight Louisville bar
+  df$textcolor <- "#000000"
+  df$textcolor[df$city == "Louisville"] <- "#00a9b7"
+
+  df$linecolor <- "#ffffff"
+  df$linecolor[df$city == "Louisville"] <- "#00a9b7"
+
+  df$lou <- if_else(df$city == "Louisville", 1, 0)
+
+  df$text_alignment <- 1.1
+  if (!is.null(alternate_text)) df$text_alignment[df$rank %in% alternate_text] <- -0.1
+
+  ### PLOT GRAPH
+
+  # Initial plot
+  p <- ggplot(data = df,
+              aes(x = factor(names, levels = rev(names)),
+                  y = var,
+                  fill  = factor(color, levels = color_names, ordered = TRUE)))
+
+  p <- p + guides(fill = FALSE, color = FALSE)
+
+  # Add bars
+  p <- p +
+    geom_bar(aes(color = factor(lou, levels = 0:1)),
+             stat = "identity",
+             size = text_size) +
+    coord_flip() +
+    ggthemes::theme_tufte()
+
+  p <- p + scale_fill_manual(values = color_values)
+  p <- p + scale_color_manual(values = c("#ffffff", "#00a9b7"))
+
+  # Add features
+  title_scale <- min(1, 48 / nchar(plot_title))
+
+  p <- p + theme(text = element_text(family = "Museo Sans 300"),
+                 plot.title = element_text(size = 74 * title_scale * text_size, hjust = 0.5, margin = margin(b = 10, unit = "pt")),
+                 axis.text.y = element_text(hjust = 0,
+                                            size = 40 * text_size, color = rev(df$textcolor)),
+                 axis.title.x = element_text(size = 60 * text_size),
+                 axis.ticks = element_blank(),
+                 axis.text.x = element_blank(),
+                 plot.caption = element_text(size = 36 * text_size, lineheight = 0.5))
+
+  if(subtitle_text != ""){
+    p <- p + theme(plot.subtitle = element_text(hjust = 0.5, size = 60 * text_size)) +
+      labs(subtitle = subtitle_text)
+  }
+
+  # Add numeric labels to bars based on bar_label parameter
+  if (y_title != "" & bar_label) {
+    p <- p + geom_text(aes(label = label_text, hjust = text_alignment),
+                       size = 14 * text_size,
+                       family = "Museo Sans 300")
+  }
+
+  # Add vertical line to the left side of the bars based on the h_line parameter
+  if (min(df$var, na.rm = TRUE) < 0) p <- p + geom_hline(yintercept = 0, linetype = "longdash", size = 2)
+
+  # Add remaining text
+  p <- p + labs(title = plot_title, y = y_title,
+                x = "", caption = caption_text)
+  p
+}
 
 int_2018 <- int_tbl %>%
   filter(YEAR == 2018) %>%
@@ -372,23 +527,19 @@ hspd_dev_2018 <- hspd_dev_tbl %>%
 
 plt1 <- ranking(int_2018, int_acc,
                 plot_title = "Internet Access",
-                subtitle_text = "2018",
-                font_family = "Verdana", text_size = 3, axis_size = 12) 
+                subtitle_text = "2018", text_size = .60) 
 
 plt2 <- ranking(hspd_2018, hspd_int,
                 plot_title = "High Speed Internet Access",
-                subtitle_text = "2018",
-                font_family = "Verdana", text_size = 3, axis_size = 12)
+                subtitle_text = "2018", text_size = .60)
 
 plt3 <- ranking(comp_tab_2018, comp_tab,
                 plot_title = "Computer or Tablet in Household",
-                subtitle_text = "2018",
-                font_family = "Verdana", text_size = 3, axis_size = 12)
+                subtitle_text = "2018", text_size = .60)
 
 plt4 <- ranking(hspd_dev_2018, hspd_dev,
                 plot_title = "High Speed Internet and Device",
-                subtitle_text = "2018",
-                font_family = "Verdana", text_size = 3, axis_size = 12)
+                subtitle_text = "2018", text_size = .60)
 ```
 
 Our focus on internet access is a focus on high speed access. While internet access over a smartphone or other non high speed source can be useful for staying connected, in the COVID era of working and learning from home high speed internet is a necessary utility that over a quarter of our households do not have. While 91% of houses have some form of internet access, only 73% have high speed internet access. 
@@ -418,10 +569,10 @@ We can also take a deeper look into internet access within Louisville. We'll foc
 While our focus is on high speed access, we do show the history of both all internet access and high speed access in the graph below. Although overall internet access has increased a little since 2013, high speed internet access remains flat or possibly slightly below 2013 levels. 
 In 2016, the Census Bureau began asking about smart phones for the first time. Although the internet access question was not changed, the addition of the question about smartphones may still explain the jump in consumers reporting that they had internet acess at home. There is no similar uptick in high speed access.  
 ```{r jeff co}
-# Cut the data down to just Jefferson County
+#Cut the data down to just Jefferson County
 # df_msa <- df %>%
 #   filter(MET2013 == 31140)
-#   
+# 
 # df_jeff <- df_msa %>%
 #   filter(PUMA %in% c("1701", "1702", "1703", "1704", "1705", "1706")) %>%
 #   write_csv("jeff_co_int.csv")
@@ -463,13 +614,32 @@ int_tbl <- int_tbl %>%
 plt_by <- function(df, group_var, title_text = "Internet Access") {
   group_var <- enquo(group_var)
 
+  text_scale <- 1
+  
   plt <- ggplot(data = df, aes(x = YEAR, y = int, group = !!group_var, colour = !!group_var)) +
     geom_errorbar(aes(ymin = int - (1.96 * se100), ymax = int + 1.96 * se100), width = .1) +
-    geom_point() +
-    geom_line() +
+    geom_point(size = 2) +
+    geom_line(size = .65) +
     theme_bw() +
     labs(title = title_text, x = "Year", y = "Percent") +
     theme(legend.position = "bottom")
+  
+  plt <- plt  + 
+    scale_colour_manual(values = c("#0e4a99", "#f58021")) +
+    theme(text = element_text(family = "Museo Sans 300"),
+          
+          legend.title     = element_text(size = 30 * text_scale),
+          legend.text      = element_text(size = 24 * text_scale,
+                                          margin = margin(b = 0.2 * text_scale, t = 0.2 * text_scale, unit = "cm")),
+
+          axis.text    = element_text(size = 24 * text_scale),
+          axis.title   = element_text(size = 30 * text_scale),
+          axis.title.x = element_text(margin = margin(t = 0.3 * text_scale, unit = "cm")),
+          axis.title.y = element_text(margin = margin(r = 0.3 * text_scale, unit = "cm")),
+      
+          plot.title = element_text(size = 42 * text_scale,
+                                    hjust = .5,
+                                    margin = margin(b = 0.4 * text_scale, unit = "cm")))
 
   plt
 }
@@ -575,20 +745,32 @@ int_puma <- tibble(
 
 jeff_co_sf <- full_join(jeff_co_sf, int_puma, by = "PUMA")
 
+text_scale <- 1
+
 ggplot(jeff_co_sf) + 
   geom_sf(aes(fill=int_per)) +
-  geom_sf_label(aes(label = int_num, fontface = "bold")) +
-  scale_fill_gradient(low = "blue", high = "purple", name = "Percent") +
+  geom_sf_label(aes(label = int_num), family = "Museo Sans 300", fontface = "bold", size = 8) +
+  scale_fill_gradient(low = "#0e4a99", high = "#f58021", name = "Percent") +
   theme_bw() +
-  theme(panel.grid = element_blank(),
+  theme(text = element_text(family = "Museo Sans 300"),
+        panel.grid = element_blank(),
         axis.text = element_blank(),
         axis.ticks = element_blank(),
         axis.title = element_blank(),
-        panel.border = element_blank()) +
-  labs(title = "Children ages 5-18 in households without High Speed Internet Access",
-       caption = "Map is shaded by percent of children without access in each Public Use Microdata Area and 
-       the number of children without access is given by the label rounded to the nearest 100 \n
-       Greater Louisville Project Analysis of Census Microdata from IPUMs")
+        panel.border = element_blank(),
+        
+        plot.caption     = element_text(size = 18 * text_scale, lineheight = .5),
+        legend.title     = element_text(size = 24 * text_scale),
+        legend.text      = element_text(size = 20 * text_scale,
+                                        margin = margin(b = 0.2 * text_scale, t = 0.2 * text_scale, unit = "cm")),
+        plot.title = element_text(size = 32 * text_scale, lineheight = .5,
+                                  margin = margin(b = 0.4 * text_scale, unit = "cm"))) +
+  labs(title = "Children ages 5-18 in households without
+                High Speed Internet Access",
+       caption = "Map is shaded by the percent of children without access in each 
+                  Public Use Microdata Area. The number of children without access 
+                  is given by the label rounded to the nearest 100. \n
+                  Greater Louisville Project Analysis of Census Microdata from IPUMs")
 ```
 
 # Internet as a Public Utility
