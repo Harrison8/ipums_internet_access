@@ -1,0 +1,133 @@
+
+/* Text Formatting */
+
+h1, h2, h3, h4, h5, h6, body {
+  font-family: "Verdana", "Roboto", "Helvetica", "Century Gothic", "Arial";
+}
+
+h1, h2 {
+  line-height:1.4;
+}
+
+h1 {
+  text-align: center;
+}
+
+body {
+  font-size: 15px;
+}
+
+/* Scroll Snap
+Snap the scroll to the top of sections
+h1.title margin ensures the page title is not obscured by the navbar */
+
+html {
+  scroll-snap-type: y proximity;
+  scroll-padding: 15px;
+}
+
+h1, h2 {
+  scroll-snap-align: start;
+}
+
+h1.title {
+  scroll-margin-top: 100px;
+}
+
+.toc-ignore {
+  scroll-snap-type: none;
+}
+
+div.tocify {
+  max-width: 240px;
+}
+
+/* Set up the navrbar to include the glp logo.
+Edit the height of its elements so the GLP logo is properly sized. */
+
+.navbar {
+  min-height: 80px;
+}
+
+.navbar-brand {
+  padding: 0 15px;
+  height: 80px;
+  line-height: 80px;
+}
+
+.navbar-toggle {
+  /* (80px - button height 34px) / 2 = 23px */
+  margin-top: 23px;
+  padding: 9px 10px !important;
+}
+
+@media (min-width: 768px) {
+  .navbar-nav > li > a {
+    /* (80px - line-height of 27px) / 2 = 26.5px */
+    padding-top: 26.5px;
+    padding-bottom: 26.5px;
+    line-height: 27px;
+  }
+}
+
+.navbar-nav-logo > li > a {
+    /* (80px - line-height of 27px) / 2 = 26.5px */
+    padding-top: 10px;
+    padding-bottom: 10px;
+    line-height: 27px;
+}
+
+/* Resise CCU19 in the navbar if the screen is narrow.
+   Otherwise, the navbar becomes two lines and obscures the table of contents.*/
+@media (max-width: 450px) {
+  .navbar-brand {
+    font-size: 18px;
+  }
+}
+
+.container2{
+    padding: 2.5rem 0 2.5rem;
+    text-align: center;
+}
+
+.block-container {
+    width: 100%;
+    padding: 0 3rem;
+    margin: 0 auto;
+    position: relative;
+    z-index: 5;
+    max-width: 68rem;
+}
+
+.button-container {
+  padding-top: 0.7rem;
+}
+
+.button {
+    font-family: "Museo Sans 300", "Roboto", "Helvetica", "Century Gothic", "Arial";
+    font-weight: bold;
+    font-size: 15px;
+    line-height: 1;
+    font-style: normal;
+    color: #fff;
+    text-transform: uppercase;
+    cursor: pointer;
+    outline: none;
+    background-color: #39607A;
+    padding: 12px 12px;
+    transition: all 0.3s ease;
+}
+
+.button:hover {
+  background-color: #f37e2d;
+  color: white;
+  text-decoration: none;
+}
+
+@media (max-width: 800px) {
+  .mobile-button {
+    display: block;
+    float: none;
+    margin: 1em;
+  }
+}
